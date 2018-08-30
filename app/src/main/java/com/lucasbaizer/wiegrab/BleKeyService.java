@@ -13,26 +13,25 @@ import android.content.Intent;
 import android.os.Binder;
 import android.os.IBinder;
 import android.support.annotation.Nullable;
+import android.util.Log;
 
 import java.io.IOException;
 import java.util.UUID;
 
 public class BleKeyService extends Service {
-	private static final byte[] DEFAULT_MAC = new byte[] { (byte) 0xDE, (byte) 0xAB, (byte) 0x92, (byte) 0x17, (byte) 0xE6, (byte) 0x41 };
+	private static final byte[] DEFAULT_MAC = new byte[] { (byte) 0xD4, (byte) 0x66, (byte) 0x9D, (byte) 0xCC, (byte) 0xCF, (byte) 0xC0 };
 	public static final int CARD_DATA_LENGTH = 7;
-	private static UUID UUID_READ_CARDS = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
-	private static UUID UUID_WRITE = UUID.fromString("0000bbbb-0000-1000-8000-00805f9b34fb");
-	private static UUID UUID_CUSTOM_DATA = UUID.fromString("0000cccc-0000-1000-8000-00805f9b34fb");
-	private static UUID UUID_BAT = UUID.nameUUIDFromBytes(new byte[] { (byte) 0x14 } );
+	private static final UUID UUID_READ_CARDS = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
+	private static final UUID UUID_WRITE = UUID.fromString("0000bbbb-0000-1000-8000-00805f9b34fb");
+	private static final UUID UUID_CUSTOM_DATA = UUID.fromString("0000cccc-0000-1000-8000-00805f9b34fb");
 
 	public static final int CODE_CONNECTED = 1;
 	public static final int CODE_DISCONNECTED = 2;
-	public static final int CODE_BATTERY_LEVEL = 4;
-	public static final int CODE_REPLAY_CUSTOM = 8;
+	public static final int CODE_REPLAY_CUSTOM = 4;
+	public static final int CODE_CARD_RESPONSE = 8;
 	public static final int CODE_NO_CARDS = 16;
 	public static final int CODE_CARD_DATA = 32;
-	public static final int CODE_CARD_RESPONSE = 64;
-	public static final int CODE_RECEIVED_CARDS = 128;
+	public static final int CODE_RECEIVED_CARDS = 64;
 
 	public OutputCallback output;
 
@@ -41,9 +40,10 @@ public class BleKeyService extends Service {
 	private BluetoothGattCallback callback = new BluetoothGattCallback() {
 		@Override
 		public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
-			if(status == BluetoothProfile.STATE_CONNECTED) {
+			Log.d("Wiegrab", "onConnectionStateChange: " + status + ": " + newState);
+			if(newState == BluetoothProfile.STATE_CONNECTED) {
 				output.consume(CODE_CONNECTED,"Connected!");
-			} else if(status == BluetoothProfile.STATE_DISCONNECTED) {
+			} else if(newState == BluetoothProfile.STATE_DISCONNECTED) {
 				output.consume(CODE_DISCONNECTED, "Disconnected!");
 			}
 		}
@@ -72,8 +72,6 @@ public class BleKeyService extends Service {
 						output.consume(CODE_CARD_RESPONSE | CODE_CARD_DATA, i + "/" + lastCards[i] + " bits/" + str.substring(0, str.length() - 1));
 					}
 				}
-			} else if(characteristic.getUuid().equals(UUID_BAT)) {
-				output.consume(CODE_BATTERY_LEVEL, "Battery level: " + characteristic.getValue()[0]);
 			}
 		}
 	};
@@ -99,6 +97,8 @@ public class BleKeyService extends Service {
 		BluetoothManager manager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
 		BluetoothAdapter adapter = manager.getAdapter();
 		BluetoothDevice device = adapter.getRemoteDevice(DEFAULT_MAC);
+
+		Log.d("Wiegrab", "Attemping to connect to GATT server...");
 		gatt = device.connectGatt(this, true, callback);
 	}
 
@@ -123,7 +123,7 @@ public class BleKeyService extends Service {
 			output.consume(-1, "Replaying card " + card + "...");
 		}
 
-		BluetoothGattCharacteristic characteristic = new BluetoothGattCharacteristic(UUID_WRITE, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT, 0);
+		BluetoothGattCharacteristic characteristic = new BluetoothGattCharacteristic(UUID_WRITE, BluetoothGattCharacteristic.PROPERTY_WRITE | BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE, 0);
 		characteristic.setValue(new byte[] { (byte) card });
 		if(!gatt.writeCharacteristic(characteristic)) {
 			output.consume(-1, "Could not write GATT characteristic.");
@@ -146,19 +146,10 @@ public class BleKeyService extends Service {
 	public boolean setCustomData(byte[] data) throws IndexOutOfBoundsException {
 		output.consume(-1, "Setting custom card data...");
 
-		BluetoothGattCharacteristic characteristic = new BluetoothGattCharacteristic(UUID_CUSTOM_DATA, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT, 0);
+		BluetoothGattCharacteristic characteristic = new BluetoothGattCharacteristic(UUID_CUSTOM_DATA, BluetoothGattCharacteristic.PROPERTY_WRITE | BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE, 0);
 		characteristic.setValue(data);
 		if(!gatt.writeCharacteristic(characteristic)) {
 			output.consume(-1, "Could not write GATT characteristic.");
-			return false;
-		}
-		return true;
-	}
-
-	public boolean getBatteryLevel() {
-		BluetoothGattCharacteristic characteristic = new BluetoothGattCharacteristic(UUID_BAT, BluetoothGattCharacteristic.PROPERTY_READ, 0);
-		if(!gatt.readCharacteristic(characteristic)) {
-			output.consume(-1, "Could not read GATT characteristic.");
 			return false;
 		}
 		return true;

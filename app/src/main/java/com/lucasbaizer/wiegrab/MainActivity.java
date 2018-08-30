@@ -3,6 +3,7 @@ package com.lucasbaizer.wiegrab;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DialogFragment;
+import android.bluetooth.BluetoothAdapter;
 import android.content.ComponentName;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -28,22 +29,32 @@ public class MainActivity extends Activity implements OutputCallback {
 	private DialogFragment dialog;
 	private boolean isJamming;
 
+	private void notSupported() {
+		Toast.makeText(this, "BLE is not supported on your device.", Toast.LENGTH_LONG).show();
+	}
+
 	@Override
 	protected void onCreate(@Nullable Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 
-		instance = new WeakReference<MainActivity>(this);
+		instance = new WeakReference<>(this);
 
 		setContentView(R.layout.activity_main);
 
-		if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
-			Toast.makeText(this, "BLE is not supported on your device.", Toast.LENGTH_LONG).show();
+		BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+		if (bluetoothAdapter == null) {
+			notSupported();
+		} else if(!bluetoothAdapter.isEnabled()) {
+			notSupported();
+		} else if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
+			notSupported();
 		}
 
 		Intent bleIntent = new Intent(this, BleKeyService.class);
 		bindService(bleIntent, new ServiceConnection() {
 			@Override
 			public void onServiceConnected(ComponentName name, IBinder service) {
+				Log.d("Wiegrab", "Service connected.");
 				ble = ((BleKeyService.BleKeyBinder) service).getService();
 				try {
 					ble.connect();
@@ -51,6 +62,9 @@ public class MainActivity extends Activity implements OutputCallback {
 					e.printStackTrace();
 				}
 
+				if(dialog != null) {
+					dialog.dismiss();
+				}
 				dialog = new SearchingDialogFragment();
 				dialog.show(getFragmentManager(), "searchingFragment");
 
